@@ -28,6 +28,7 @@ export function loadConfig(): AppConfig {
     retellApiKey: requireEnv("RETELL_API_KEY"),
     openclawUrl: requireEnv("OPENCLAW_URL"),
     openclawApiKey: process.env.OPENCLAW_API_KEY,
+    openclawModel: process.env.OPENCLAW_MODEL || "anthropic/claude-sonnet-4-20250514",
     port: parseInt(process.env.PORT || "8080", 10),
     systemPrompt: process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
   };

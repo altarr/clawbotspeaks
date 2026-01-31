@@ -6,12 +6,14 @@ import type { ConversationMessage, StreamCallback, AppConfig } from "./types.js"
 export class LLMClient {
   private baseUrl: string;
   private apiKey?: string;
+  private model: string;
   private systemPrompt: string;
 
   constructor(config: AppConfig) {
     // Remove trailing slash if present
     this.baseUrl = config.openclawUrl.replace(/\/$/, "");
     this.apiKey = config.openclawApiKey;
+    this.model = config.openclawModel;
     this.systemPrompt = config.systemPrompt;
   }
 
@@ -43,6 +45,7 @@ export class LLMClient {
         method: "POST",
         headers,
         body: JSON.stringify({
+          model: this.model,
           input,
           instructions: this.systemPrompt,
           stream: true,
@@ -147,6 +150,7 @@ export class LLMClient {
         method: "POST",
         headers,
         body: JSON.stringify({
+          model: this.model,
           input,
           instructions: this.systemPrompt,
           stream: false,

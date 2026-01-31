@@ -35,6 +35,7 @@ export interface AppConfig {
   retellApiKey: string;
   openclawUrl: string;
   openclawApiKey?: string;
+  openclawModel: string;
   port: number;
   systemPrompt: string;
 }

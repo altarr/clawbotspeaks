@@ -44,6 +44,13 @@ Examples:
 
 API key for authenticating with OpenClaw, if required by your configuration.
 
+#### `OPENCLAW_MODEL`
+
+The model to use for generating responses.
+
+- **Default:** `anthropic/claude-sonnet-4-20250514`
+- **Example:** `OPENCLAW_MODEL=anthropic/claude-opus-4-5`
+
 #### `PORT`
 
 The port for the WebSocket server.

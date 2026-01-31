@@ -56,6 +56,7 @@ npm run dev
 | `RETELL_API_KEY` | Yes | - | Your Retell API key |
 | `OPENCLAW_URL` | Yes | - | OpenClaw gateway URL |
 | `OPENCLAW_API_KEY` | No | - | API key if OpenClaw requires auth |
+| `OPENCLAW_MODEL` | No | `anthropic/claude-sonnet-4-20250514` | Model to use for responses |
 | `PORT` | No | 8080 | WebSocket server port |
 | `SYSTEM_PROMPT` | No | See below | Voice-specific instructions |
 

@@ -152,7 +152,18 @@ ngrok http 8080
 ### Production (EC2/VPS)
 
 1. Deploy to a server with a public IP
-2. Use a reverse proxy (nginx/Caddy) for TLS:
+2. **Connect to OpenClaw via Tailscale** (recommended):
+   ```bash
+   # On your deployment server
+   curl -fsSL https://tailscale.com/install.sh | sh
+   tailscale up
+   
+   # Use your OpenClaw machine's Tailscale IP
+   OPENCLAW_URL=http://100.x.x.x:18789
+   ```
+   This keeps OpenClaw private (no public exposure) while allowing your voice server to reach it securely.
+
+3. Use a reverse proxy (nginx/Caddy) for TLS:
 
 ```nginx
 # /etc/nginx/sites-available/clawbotspeaks

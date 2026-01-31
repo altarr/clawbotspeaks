@@ -317,19 +317,55 @@ OPENCLAW_URL=http://localhost:18789
 OPENCLAW_URL=http://192.168.1.100:18789
 ```
 
-### Different Machine (Internet)
+### Different Machine (Internet) — Use Tailscale (Recommended)
 
-You'll need to expose OpenClaw's HTTP endpoint. Options:
-- Tailscale/ZeroTier for private networking (recommended)
-- Reverse proxy with authentication
-- VPN
+[Tailscale](https://tailscale.com) creates a private mesh network between your machines. It's the best way to connect a cloud-deployed ClawBot Speaks to an OpenClaw running elsewhere (e.g., your home server or laptop).
 
+**Why Tailscale?**
+- ✅ No port forwarding or firewall holes
+- ✅ Encrypted end-to-end (WireGuard)
+- ✅ OpenClaw stays private (not exposed to internet)
+- ✅ Works through NAT, firewalls, anywhere
+- ✅ Free for personal use (up to 100 devices)
+
+**Setup:**
+
+1. Install Tailscale on your **OpenClaw machine**:
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   tailscale up
+   ```
+   Note the Tailscale IP (looks like `100.x.x.x`)
+
+2. Install Tailscale on your **ClawBot Speaks server** (EC2, VPS, etc.):
+   ```bash
+   curl -fsSL https://tailscale.com/install.sh | sh
+   tailscale up
+   ```
+
+3. Configure ClawBot Speaks to use the Tailscale IP:
+   ```env
+   OPENCLAW_URL=http://100.x.x.x:18789
+   ```
+
+4. Test connectivity:
+   ```bash
+   curl http://100.x.x.x:18789/v1/responses \
+     -H "Content-Type: application/json" \
+     -d '{"model":"anthropic/claude-sonnet-4-20250514","input":[{"role":"user","content":"ping"}],"stream":false}'
+   ```
+
+**That's it.** Your cloud voice server can now reach your private OpenClaw over an encrypted tunnel, with zero public exposure.
+
+### Alternative: Public Exposure (Not Recommended)
+
+If you must expose OpenClaw publicly:
 ```env
-OPENCLAW_URL=http://your-tailscale-ip:18789
-# or
 OPENCLAW_URL=https://openclaw.yourdomain.com
-OPENCLAW_API_KEY=your-api-key
+OPENCLAW_API_KEY=your-api-key  # Enable auth!
 ```
+
+⚠️ Make sure OpenClaw has API authentication enabled if exposed to the internet.
 
 ## Monitoring & Logs
 

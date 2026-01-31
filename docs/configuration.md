@@ -8,7 +8,8 @@ Create a `.env` file in the project root (copy from `.env.example`):
 
 ```env
 RETELL_API_KEY=your_retell_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
+OPENCLAW_URL=http://localhost:3000
+OPENCLAW_API_KEY=optional_api_key
 PORT=8080
 SYSTEM_PROMPT="Your custom prompt here"
 ```
@@ -19,11 +20,29 @@ SYSTEM_PROMPT="Your custom prompt here"
 
 Your Retell AI API key. Get this from the [Retell Dashboard](https://dashboard.retellai.com).
 
-#### `ANTHROPIC_API_KEY`
+#### `OPENCLAW_URL`
 
-Your Anthropic API key. Get this from the [Anthropic Console](https://console.anthropic.com).
+The URL of your OpenClaw gateway. This must have OpenResponses enabled:
+
+```json
+{
+  "gateway": {
+    "openResponses": {
+      "enabled": true
+    }
+  }
+}
+```
+
+Examples:
+- Local: `http://localhost:3000`
+- Production: `https://openclaw.yourdomain.com`
 
 ### Optional Variables
+
+#### `OPENCLAW_API_KEY`
+
+API key for authenticating with OpenClaw, if required by your configuration.
 
 #### `PORT`
 
@@ -34,7 +53,7 @@ The port for the WebSocket server.
 
 #### `SYSTEM_PROMPT`
 
-Custom system prompt for Claude. This shapes how Claude responds to callers.
+Custom instructions passed to OpenClaw's OpenResponses API. This shapes how the assistant responds to callers.
 
 **Default prompt:**
 ```
@@ -49,6 +68,39 @@ Important guidelines for voice interactions:
 - Ask clarifying questions if the request is unclear
 - Be warm and personable while staying professional
 ```
+
+## OpenClaw Configuration
+
+### Enabling OpenResponses
+
+In your OpenClaw configuration:
+
+```json
+{
+  "gateway": {
+    "openResponses": {
+      "enabled": true
+    }
+  }
+}
+```
+
+### OpenResponses API
+
+ClawBot Speaks calls `POST /v1/responses` with:
+
+```json
+{
+  "input": [
+    { "role": "user", "content": "message" },
+    { "role": "assistant", "content": "response" }
+  ],
+  "instructions": "system prompt here",
+  "stream": true
+}
+```
+
+The `instructions` field receives the `SYSTEM_PROMPT` from ClawBot Speaks.
 
 ## Custom System Prompts
 
@@ -75,42 +127,11 @@ SYSTEM_PROMPT="You are a friendly customer service representative for Acme Corp.
 SYSTEM_PROMPT="You are an appointment scheduler for Dr. Smith's dental office. Help callers book, reschedule, or cancel appointments. Ask for their name and preferred date/time. Confirm all details before ending the call. Available hours are Monday through Friday, 9 AM to 5 PM."
 ```
 
-#### Information Hotline
+#### Personal Assistant
 
 ```env
-SYSTEM_PROMPT="You provide information about city services. Answer questions about trash pickup, parking permits, and city events. Give concise answers. If you don't know something, direct callers to the city website or main phone line."
+SYSTEM_PROMPT="You are the user's personal assistant with access to their calendar, email, and tasks. Keep responses brief and action-oriented. When asked to do something, confirm what you're doing. If you need clarification, ask one question at a time."
 ```
-
-## Claude Model Configuration
-
-The LLM client uses `claude-sonnet-4-20250514` with these settings:
-
-```typescript
-{
-  model: "claude-sonnet-4-20250514",
-  max_tokens: 300,
-  system: config.systemPrompt,
-  messages: conversation
-}
-```
-
-To modify these settings, edit `src/llm-client.ts`.
-
-### Model Selection
-
-| Model | Use Case |
-|-------|----------|
-| `claude-sonnet-4-20250514` | Default, good balance of quality and speed |
-| `claude-3-5-haiku-20241022` | Faster responses, lower cost |
-| `claude-opus-4-20250514` | Highest quality, higher latency |
-
-### Max Tokens
-
-The default `max_tokens: 300` keeps responses concise for voice. Adjust based on your use case:
-
-- **Short responses (greetings, confirmations):** 100-150
-- **Standard responses:** 200-300
-- **Detailed explanations:** 400-500
 
 ## Voice Utils Configuration
 
@@ -122,22 +143,17 @@ To change this, modify `DEFAULT_MAX_LENGTH` in `src/voice-utils.ts`:
 const DEFAULT_MAX_LENGTH = 500;
 ```
 
-Or pass a custom length when calling `cleanForTTS`:
-
-```typescript
-const cleaned = cleanForTTS(response, 300);
-```
-
 ## Production Configuration
 
 ### Environment-Specific Settings
 
-For production deployments, consider:
+For production deployments:
 
 ```env
 # Production .env
 RETELL_API_KEY=prod_retell_key
-ANTHROPIC_API_KEY=prod_anthropic_key
+OPENCLAW_URL=https://openclaw.internal.yourdomain.com
+OPENCLAW_API_KEY=prod_openclaw_key
 PORT=8080
 NODE_ENV=production
 ```
@@ -150,61 +166,36 @@ For production, use a reverse proxy (nginx, Caddy) to handle TLS:
 Client (wss://) → Reverse Proxy (TLS termination) → ClawBot (ws://)
 ```
 
-Example nginx configuration:
+### Network Security
 
-```nginx
-server {
-    listen 443 ssl;
-    server_name voice.example.com;
+- ClawBot Speaks should be able to reach your OpenClaw gateway
+- Retell should be able to reach ClawBot Speaks
+- Consider using internal networking between ClawBot and OpenClaw
 
-    ssl_certificate /path/to/cert.pem;
-    ssl_certificate_key /path/to/key.pem;
-
-    location / {
-        proxy_pass http://localhost:8080;
-        proxy_http_version 1.1;
-        proxy_set_header Upgrade $http_upgrade;
-        proxy_set_header Connection "upgrade";
-        proxy_set_header Host $host;
-    }
-}
-```
-
-### Health Checks
-
-The server doesn't currently expose a health endpoint. For container deployments, you can check if the process is running or add a simple HTTP health endpoint.
-
-## Troubleshooting Configuration
+## Troubleshooting
 
 ### "Missing required environment variable"
 
-Ensure your `.env` file exists and contains all required variables. Check for:
-- Typos in variable names
-- Missing quotes around values with spaces
-- File not in the project root
+Ensure your `.env` file exists and contains all required variables.
 
-### API Key Issues
+### OpenClaw Connection Issues
 
-Test your API keys independently:
-
+Test the connection:
 ```bash
-# Test Anthropic key
-curl https://api.anthropic.com/v1/messages \
-  -H "x-api-key: $ANTHROPIC_API_KEY" \
-  -H "content-type: application/json" \
-  -H "anthropic-version: 2023-06-01" \
-  -d '{"model":"claude-sonnet-4-20250514","max_tokens":10,"messages":[{"role":"user","content":"Hi"}]}'
+curl -X POST http://localhost:3000/v1/responses \
+  -H "Content-Type: application/json" \
+  -d '{"input":[{"role":"user","content":"Hello"}],"stream":false}'
 ```
+
+If this fails, check:
+- OpenClaw is running
+- OpenResponses is enabled in OpenClaw config
+- URL is correct (no trailing slash)
 
 ### Port Conflicts
 
 If port 8080 is in use:
-
 ```bash
-# Find what's using the port
-lsof -i :8080  # macOS/Linux
-netstat -ano | findstr :8080  # Windows
-
 # Use a different port
-PORT=3000 npm run dev
+PORT=3001 npm run dev
 ```

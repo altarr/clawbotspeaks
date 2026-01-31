@@ -14,13 +14,12 @@
     "voice",
     "retell",
     "websocket",
-    "claude",
-    "anthropic"
+    "openclaw",
+    "claude"
   ],
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "@anthropic-ai/sdk": "^0.39.0",
     "dotenv": "^16.4.7",
     "ws": "^8.18.0"
   },

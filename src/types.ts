@@ -33,7 +33,8 @@ export interface RetellResponse {
 // Configuration for the application
 export interface AppConfig {
   retellApiKey: string;
-  anthropicApiKey: string;
+  openclawUrl: string;
+  openclawApiKey?: string;
   port: number;
   systemPrompt: string;
 }

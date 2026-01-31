@@ -26,7 +26,8 @@ function requireEnv(name: string): string {
 export function loadConfig(): AppConfig {
   return {
     retellApiKey: requireEnv("RETELL_API_KEY"),
-    anthropicApiKey: requireEnv("ANTHROPIC_API_KEY"),
+    openclawUrl: requireEnv("OPENCLAW_URL"),
+    openclawApiKey: process.env.OPENCLAW_API_KEY,
     port: parseInt(process.env.PORT || "8080", 10),
     systemPrompt: process.env.SYSTEM_PROMPT || DEFAULT_SYSTEM_PROMPT,
   };

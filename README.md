@@ -1,63 +1,74 @@
 # ClawBot Speaks
 
-A voice server that connects [Retell AI](https://retellai.com) to Claude, enabling natural phone conversations powered by Anthropic's language model.
+A voice server that connects [Retell AI](https://retellai.com) to [OpenClaw](https://github.com/your-org/openclaw), enabling phone conversations with full access to OpenClaw's tools, memory, and agent infrastructure.
 
 ## How It Works
 
 ```
-Phone Call → Retell (Speech-to-Text) → This Server → Claude → Back to Retell (Text-to-Speech) → Phone Call
+Phone Call → Retell (STT) → ClawBot Speaks → OpenClaw (/v1/responses) → Back to Retell (TTS) → Phone Call
 ```
 
 1. User calls a phone number configured in Retell
 2. Retell transcribes speech and sends text via WebSocket
-3. This server forwards the conversation to Claude
-4. Claude's response streams back, cleaned for natural speech
-5. Retell converts the response to speech for the caller
+3. ClawBot Speaks forwards the conversation to OpenClaw's OpenResponses API
+4. OpenClaw processes with full tool access and streams the response
+5. Response is cleaned for TTS and sent back to Retell
+6. Retell converts the response to speech for the caller
 
-## Quick Start
-
-### Prerequisites
+## Prerequisites
 
 - Node.js 18+
 - [Retell AI](https://retellai.com) account
-- [Anthropic API](https://console.anthropic.com) key
+- OpenClaw gateway with OpenResponses enabled:
+  ```json
+  {
+    "gateway": {
+      "openResponses": {
+        "enabled": true
+      }
+    }
+  }
+  ```
 
-### Installation
+## Quick Start
 
 ```bash
-# Clone the repository
-git clone <repository-url>
-cd clawbotspeaks
-
 # Install dependencies
 npm install
 
 # Copy environment template
 cp .env.example .env
-```
 
-### Configuration
+# Edit .env with your configuration
+# - RETELL_API_KEY: Your Retell API key
+# - OPENCLAW_URL: Your OpenClaw gateway URL (e.g., http://localhost:3000)
 
-Edit `.env` with your API keys:
-
-```env
-RETELL_API_KEY=your_retell_api_key
-ANTHROPIC_API_KEY=your_anthropic_api_key
-PORT=8080
-```
-
-### Run the Server
-
-```bash
-# Development (with hot reload)
+# Start the server
 npm run dev
-
-# Production
-npm run build
-npm start
 ```
 
-### Connect to Retell
+## Configuration
+
+### Environment Variables
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `RETELL_API_KEY` | Yes | - | Your Retell API key |
+| `OPENCLAW_URL` | Yes | - | OpenClaw gateway URL |
+| `OPENCLAW_API_KEY` | No | - | API key if OpenClaw requires auth |
+| `PORT` | No | 8080 | WebSocket server port |
+| `SYSTEM_PROMPT` | No | See below | Voice-specific instructions |
+
+### System Prompt
+
+The default prompt instructs the assistant to:
+- Keep responses brief (1-3 sentences)
+- Speak naturally as if on a phone call
+- Avoid markdown, URLs, and technical formatting
+
+This is passed as `instructions` to the OpenResponses API.
+
+## Connecting to Retell
 
 1. Go to your [Retell Dashboard](https://dashboard.retellai.com)
 2. Create or edit an agent
@@ -66,164 +77,94 @@ npm start
 5. Assign a phone number to the agent
 6. Call the number to test
 
-## Configuration Options
-
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `RETELL_API_KEY` | Yes | - | Your Retell API key |
-| `ANTHROPIC_API_KEY` | Yes | - | Your Anthropic API key |
-| `PORT` | No | 8080 | WebSocket server port |
-| `SYSTEM_PROMPT` | No | See below | Custom system prompt for Claude |
-
-### Default System Prompt
-
-The default prompt instructs Claude to:
-- Keep responses brief (1-3 sentences)
-- Speak naturally as if on a phone call
-- Avoid markdown, URLs, and technical formatting
-- Ask clarifying questions when needed
-
-You can override this by setting `SYSTEM_PROMPT` in your `.env` file.
+For local development, use ngrok:
+```bash
+ngrok http 8080
+# Use the wss:// URL in Retell
+```
 
 ## Project Structure
 
 ```
 clawbotspeaks/
 ├── src/
-│   ├── index.ts           # Entry point, starts server
+│   ├── index.ts           # Entry point
 │   ├── config.ts          # Environment configuration
 │   ├── server.ts          # WebSocket server
 │   ├── retell-handler.ts  # Retell protocol implementation
-│   ├── llm-client.ts      # Claude API client
+│   ├── llm-client.ts      # OpenClaw OpenResponses client
 │   ├── conversation.ts    # Per-call state management
 │   ├── voice-utils.ts     # Text cleaning for TTS
 │   └── types.ts           # TypeScript interfaces
 ├── tests/
 │   └── voice-utils.test.ts
-├── package.json
-├── tsconfig.json
-└── .env.example
+├── docs/
+│   ├── retell-protocol.md
+│   ├── configuration.md
+│   └── deployment.md
+└── package.json
 ```
 
 ## Architecture
 
-### Server (`server.ts`)
+### Flow
 
-The WebSocket server accepts connections from Retell. Each connection represents one phone call. The server:
-- Assigns a unique call ID to each connection
-- Creates a dedicated handler for the call
-- Tracks active calls for monitoring
-- Handles graceful shutdown
+```
+Retell WebSocket                    OpenClaw
+     │                                  │
+     │◄──── ClawBot Speaks ────────────►│
+     │         (bridge)                 │
+     │                                  │
+  [STT/TTS]                    [Claude + Tools]
+```
 
-### Retell Handler (`retell-handler.ts`)
+### OpenResponses Integration
 
-Implements the [Retell WebSocket protocol](https://docs.retellai.com/api-references/llm-websocket). Handles three message types:
+ClawBot Speaks calls OpenClaw's `/v1/responses` endpoint:
 
-- `response_required` - User finished speaking, generate a response
-- `reminder_required` - User hasn't spoken, prompt them
-- `update_only` - Transcript update, no response needed
+```typescript
+POST /v1/responses
+{
+  "input": [
+    { "role": "user", "content": "What's on my calendar?" }
+  ],
+  "instructions": "Keep responses brief...",
+  "stream": true
+}
+```
 
-Responses are streamed in chunks for lower latency.
+OpenClaw handles:
+- Tool execution (calendar, email, etc.)
+- Session/agent infrastructure
+- Conversation memory (if configured)
 
-### LLM Client (`llm-client.ts`)
+### Voice Utils
 
-Wraps the Anthropic SDK to:
-- Stream responses for real-time delivery
-- Inject the voice-optimized system prompt
-- Handle errors gracefully
-
-### Conversation (`conversation.ts`)
-
-Maintains conversation history per call:
-- Syncs state from Retell's transcript
-- Formats messages for Claude's API
-- Tracks call metadata (start time, message count)
-
-### Voice Utils (`voice-utils.ts`)
-
-Cleans Claude's responses for text-to-speech:
-- Removes markdown (bold, italic, code blocks)
-- Strips URLs and links
-- Removes bullet points and lists
-- Truncates long responses at sentence boundaries
+Responses are cleaned for natural TTS:
+- Strips markdown formatting
+- Removes URLs and code blocks
+- Truncates at sentence boundaries
 
 ## Development
 
-### Scripts
-
 ```bash
-npm run dev      # Start with hot reload (tsx)
+npm run dev      # Start with hot reload
 npm run build    # Compile TypeScript
 npm start        # Run compiled code
 npm test         # Run tests
 ```
 
-### Testing
+## Why OpenClaw Integration?
 
-```bash
-# Run all tests
-npm test
+Without OpenClaw, each call would be a fresh Claude instance with:
+- No memory of previous calls
+- No access to tools
+- No integration with your systems
 
-# Run tests in watch mode
-npm test -- --watch
-```
-
-### Local Development with Retell
-
-For local development, you'll need to expose your server to the internet. Options:
-
-1. **ngrok** (recommended for testing)
-   ```bash
-   ngrok http 8080
-   ```
-   Use the provided `wss://` URL in Retell.
-
-2. **Deploy to a cloud provider** (recommended for production)
-
-## Retell Protocol Reference
-
-### Incoming Messages
-
-```typescript
-{
-  interaction_type: "response_required" | "reminder_required" | "update_only",
-  transcript: [
-    { role: "user", content: "Hello" },
-    { role: "agent", content: "Hi there!" }
-  ]
-}
-```
-
-### Outgoing Messages
-
-```typescript
-{
-  response_id: 1,
-  content: "Hello, how can I help?",
-  content_complete: false,  // true on final chunk
-  end_call: false           // true to hang up
-}
-```
-
-## Troubleshooting
-
-### Connection Issues
-
-- Ensure your server is accessible from the internet
-- Check that the WebSocket URL uses `ws://` (or `wss://` for TLS)
-- Verify your Retell API key is valid
-
-### No Response from Claude
-
-- Check your Anthropic API key is valid
-- Look for errors in the server console
-- Verify the transcript contains user messages
-
-### Responses Sound Unnatural
-
-- The voice-utils module cleans responses, but Claude may still produce awkward phrasing
-- Customize the `SYSTEM_PROMPT` to better guide Claude's responses
-- Consider adjusting Retell's voice settings
+With OpenClaw, voice calls get:
+- Full tool access (same as other channels)
+- Shared agent infrastructure
+- Consistent behavior across channels
 
 ## License
 

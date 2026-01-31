@@ -1,11 +1,12 @@
 # Deployment Guide
 
-This guide covers deploying ClawBot Speaks to various platforms.
+This guide covers deploying ClawBot Speaks to various environments.
 
 ## Prerequisites
 
 - Node.js 18+ on the target server
-- API keys for Retell and Anthropic
+- OpenClaw gateway running with OpenResponses enabled
+- Retell AI account with API key
 - A domain or public IP for Retell to connect to
 
 ## Local Development
@@ -24,7 +25,102 @@ ngrok http 8080
 
 Copy the ngrok URL (e.g., `https://abc123.ngrok.io`) and configure it in Retell as `wss://abc123.ngrok.io`.
 
+**Important:** The free ngrok tier generates a new URL each time. For persistent development, consider ngrok's paid tier or deploy to a cloud provider.
+
 ## Production Deployments
+
+### Simple VPS (Recommended for starters)
+
+The simplest production setup is a basic VPS (DigitalOcean, Linode, Vultr, etc.):
+
+```bash
+# SSH into your server
+ssh user@your-server
+
+# Install Node.js 20
+curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -
+sudo apt-get install -y nodejs
+
+# Clone and build
+git clone https://github.com/altarr/clawbotspeaks.git
+cd clawbotspeaks
+npm install
+npm run build
+
+# Create .env
+cp .env.example .env
+nano .env  # Add your keys
+
+# Test it works
+npm start
+
+# Set up as a service (see systemd section below)
+```
+
+### AWS EC2
+
+#### 1. Launch EC2 Instance
+
+- AMI: Amazon Linux 2023 or Ubuntu 22.04
+- Instance type: t3.micro (sufficient for moderate call volume)
+- Security group: Allow inbound TCP 8080 (or 443 if using TLS)
+
+#### 2. Install & Configure
+
+```bash
+# SSH in
+ssh -i your-key.pem ec2-user@your-instance-ip
+
+# Install Node.js
+curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
+sudo yum install -y nodejs git
+
+# Clone and build
+git clone https://github.com/altarr/clawbotspeaks.git
+cd clawbotspeaks
+npm install
+npm run build
+
+# Create .env with your config
+cp .env.example .env
+nano .env
+```
+
+#### 3. Create systemd Service
+
+```bash
+sudo nano /etc/systemd/system/clawbotspeaks.service
+```
+
+```ini
+[Unit]
+Description=ClawBot Speaks Voice Server
+After=network.target
+
+[Service]
+Type=simple
+User=ec2-user
+WorkingDirectory=/home/ec2-user/clawbotspeaks
+ExecStart=/usr/bin/node dist/index.js
+Restart=on-failure
+EnvironmentFile=/home/ec2-user/clawbotspeaks/.env
+
+[Install]
+WantedBy=multi-user.target
+```
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable clawbotspeaks
+sudo systemctl start clawbotspeaks
+sudo systemctl status clawbotspeaks
+```
+
+#### 4. Configure Retell
+
+Set your Custom LLM WebSocket URL to `ws://your-ec2-ip:8080`
+
+For production with TLS, add nginx (see Reverse Proxy section below).
 
 ### Docker
 
@@ -35,9 +131,11 @@ FROM node:20-alpine
 
 WORKDIR /app
 
+# Install dependencies
 COPY package*.json ./
 RUN npm ci --only=production
 
+# Copy built code
 COPY dist/ ./dist/
 
 ENV NODE_ENV=production
@@ -51,7 +149,7 @@ CMD ["node", "dist/index.js"]
 #### Build and Run
 
 ```bash
-# Build the application
+# Build the application first
 npm run build
 
 # Build Docker image
@@ -61,8 +159,8 @@ docker build -t clawbotspeaks .
 docker run -d \
   --name clawbotspeaks \
   -p 8080:8080 \
-  -e RETELL_API_KEY=your_key \
-  -e ANTHROPIC_API_KEY=your_key \
+  --env-file .env \
+  --restart unless-stopped \
   clawbotspeaks
 ```
 
@@ -76,24 +174,26 @@ services:
     build: .
     ports:
       - "8080:8080"
-    environment:
-      - RETELL_API_KEY=${RETELL_API_KEY}
-      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
-      - PORT=8080
+    env_file:
+      - .env
     restart: unless-stopped
 ```
 
 ### Railway
 
 1. Connect your GitHub repository to [Railway](https://railway.app)
-2. Add environment variables in the Railway dashboard
+2. Add environment variables in the Railway dashboard:
+   - `RETELL_API_KEY`
+   - `OPENCLAW_URL`
+   - `OPENCLAW_API_KEY` (if needed)
+   - `OPENCLAW_MODEL`
 3. Railway auto-detects Node.js and deploys
 
-The WebSocket URL will be `wss://your-app.railway.app`.
+WebSocket URL: `wss://your-app.up.railway.app`
 
 ### Render
 
-1. Create a new Web Service on [Render](https://render.com)
+1. Create a new **Web Service** on [Render](https://render.com)
 2. Connect your repository
 3. Configure:
    - **Build Command:** `npm install && npm run build`
@@ -101,124 +201,49 @@ The WebSocket URL will be `wss://your-app.railway.app`.
 4. Add environment variables
 5. Deploy
 
+WebSocket URL: `wss://your-app.onrender.com`
+
 ### Fly.io
 
 #### fly.toml
 
 ```toml
 app = "clawbotspeaks"
-primary_region = "ord"
+primary_region = "iad"  # Choose closest to your users
 
 [build]
-  builder = "heroku/buildpacks:20"
+  [build.args]
+    NODE_VERSION = "20"
 
 [env]
   PORT = "8080"
 
-[http_service]
-  internal_port = 8080
-  force_https = true
-
 [[services]]
-  protocol = "tcp"
   internal_port = 8080
+  protocol = "tcp"
 
   [[services.ports]]
-    port = 443
     handlers = ["tls", "http"]
+    port = 443
 
   [[services.ports]]
-    port = 80
     handlers = ["http"]
+    port = 80
 ```
 
 #### Deploy
 
 ```bash
-# Install flyctl
-curl -L https://fly.io/install.sh | sh
-
-# Login and deploy
-fly auth login
 fly launch
-fly secrets set RETELL_API_KEY=xxx ANTHROPIC_API_KEY=xxx
+fly secrets set RETELL_API_KEY=xxx OPENCLAW_URL=xxx OPENCLAW_API_KEY=xxx
 fly deploy
 ```
 
-### AWS (EC2 + ALB)
+WebSocket URL: `wss://clawbotspeaks.fly.dev`
 
-#### EC2 Setup
+## Reverse Proxy (TLS)
 
-```bash
-# SSH into EC2 instance
-ssh ec2-user@your-instance
-
-# Install Node.js
-curl -fsSL https://rpm.nodesource.com/setup_20.x | sudo bash -
-sudo yum install -y nodejs
-
-# Clone and setup
-git clone your-repo
-cd clawbotspeaks
-npm install
-npm run build
-
-# Create systemd service
-sudo nano /etc/systemd/system/clawbotspeaks.service
-```
-
-#### Systemd Service
-
-```ini
-[Unit]
-Description=ClawBot Speaks Voice Server
-After=network.target
-
-[Service]
-Type=simple
-User=ec2-user
-WorkingDirectory=/home/ec2-user/clawbotspeaks
-ExecStart=/usr/bin/node dist/index.js
-Restart=on-failure
-Environment=NODE_ENV=production
-Environment=PORT=8080
-Environment=RETELL_API_KEY=xxx
-Environment=ANTHROPIC_API_KEY=xxx
-
-[Install]
-WantedBy=multi-user.target
-```
-
-```bash
-# Enable and start
-sudo systemctl enable clawbotspeaks
-sudo systemctl start clawbotspeaks
-```
-
-#### Application Load Balancer
-
-1. Create an ALB with WebSocket support
-2. Configure target group pointing to your EC2 instance
-3. Add HTTPS listener with your SSL certificate
-4. Configure health checks
-
-### Google Cloud Run
-
-```bash
-# Build and push to Container Registry
-gcloud builds submit --tag gcr.io/PROJECT_ID/clawbotspeaks
-
-# Deploy
-gcloud run deploy clawbotspeaks \
-  --image gcr.io/PROJECT_ID/clawbotspeaks \
-  --platform managed \
-  --allow-unauthenticated \
-  --set-env-vars "RETELL_API_KEY=xxx,ANTHROPIC_API_KEY=xxx"
-```
-
-Note: Cloud Run has a WebSocket connection timeout. Consider Cloud Run with WebSocket support or use GCE instead.
-
-## Reverse Proxy Configuration
+For production, use a reverse proxy to handle TLS termination.
 
 ### Nginx
 
@@ -244,14 +269,28 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
 
-        # WebSocket timeouts
+        # WebSocket timeouts (24 hours)
         proxy_read_timeout 86400;
         proxy_send_timeout 86400;
     }
 }
+
+server {
+    listen 80;
+    server_name voice.example.com;
+    return 301 https://$server_name$request_uri;
+}
 ```
 
-### Caddy
+Get a free certificate with Let's Encrypt:
+```bash
+sudo apt install certbot python3-certbot-nginx
+sudo certbot --nginx -d voice.example.com
+```
+
+### Caddy (Simpler)
+
+Caddy auto-handles TLS certificates:
 
 ```caddyfile
 voice.example.com {
@@ -259,67 +298,77 @@ voice.example.com {
 }
 ```
 
-Caddy automatically handles TLS and WebSocket upgrades.
+```bash
+sudo caddy run --config Caddyfile
+```
 
-## Monitoring
+## Connecting to OpenClaw
 
-### Logging
+### Same Machine
 
-The server logs to stdout:
-- Connection events
-- User messages (truncated)
-- Response completions
-- Errors
+If OpenClaw runs on the same server:
+```env
+OPENCLAW_URL=http://localhost:18789
+```
 
-For production, pipe logs to a service:
+### Different Machine (Local Network)
+
+```env
+OPENCLAW_URL=http://192.168.1.100:18789
+```
+
+### Different Machine (Internet)
+
+You'll need to expose OpenClaw's HTTP endpoint. Options:
+- Tailscale/ZeroTier for private networking (recommended)
+- Reverse proxy with authentication
+- VPN
+
+```env
+OPENCLAW_URL=http://your-tailscale-ip:18789
+# or
+OPENCLAW_URL=https://openclaw.yourdomain.com
+OPENCLAW_API_KEY=your-api-key
+```
+
+## Monitoring & Logs
+
+### View Logs
 
 ```bash
-node dist/index.js | tee -a /var/log/clawbotspeaks.log
+# If using systemd
+sudo journalctl -u clawbotspeaks -f
+
+# If running directly
+npm start 2>&1 | tee clawbotspeaks.log
+
+# Docker
+docker logs -f clawbotspeaks
 ```
 
-Or use a logging service like Datadog, Papertrail, or CloudWatch.
+### What to Monitor
 
-### Metrics
+- **Active connections** - logged on connect/disconnect
+- **Response latency** - slow responses = poor call experience
+- **Errors** - OpenClaw connection issues, API errors
+- **OpenClaw health** - if OpenClaw is down, calls fail
 
-Consider adding metrics for:
-- Active connections
-- Response latency
-- Error rates
-- Claude API usage
+## Security Checklist
 
-### Health Checks
+- [ ] Never commit `.env` files to git
+- [ ] Use TLS in production (nginx/Caddy)
+- [ ] Restrict server access (firewall, security groups)
+- [ ] Use environment variables or secrets manager for keys
+- [ ] Keep dependencies updated (`npm audit`)
+- [ ] Consider rate limiting for abuse prevention
 
-Add a simple HTTP health endpoint if needed:
+## Scaling
 
-```typescript
-// In server.ts, add HTTP server alongside WebSocket
-import { createServer } from 'http';
+For high call volume:
 
-const httpServer = createServer((req, res) => {
-  if (req.url === '/health') {
-    res.writeHead(200);
-    res.end('OK');
-  }
-});
-```
+1. **Vertical scaling** - Bigger instance (usually sufficient)
+2. **Horizontal scaling** - Multiple instances behind a load balancer
+   - WebSocket connections are stateful; use sticky sessions or session affinity
+3. **OpenClaw scaling** - Ensure your OpenClaw can handle the request volume
 
-## Security Considerations
-
-### API Key Security
-
-- Never commit `.env` files
-- Use secrets management (AWS Secrets Manager, HashiCorp Vault)
-- Rotate keys periodically
-
-### Network Security
-
-- Use TLS for all connections
-- Restrict inbound traffic to Retell's IP ranges if possible
-- Use private networking for internal services
-
-### Rate Limiting
-
-Consider adding rate limiting to prevent abuse:
-- Limit connections per IP
-- Limit messages per connection
-- Monitor for unusual patterns
+For most use cases, a single t3.small/medium handles dozens of concurrent calls.
